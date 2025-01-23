@@ -16,12 +16,32 @@
 // See : https://github.com/umdjs/umd
 // See : https://github.com/umdjs/umd/blob/master/returnExportsGlobal.js
 //
-;(function(root, factory) {
+    // 配置物件的型別
+    interface Config {
+        bits: number;
+        maxShares: number;
+        logs: number[];
+        exps: number[];
+    }
+
+
+
+const config: Config = {
+    bits: 8, // 假設每段是 8 位
+    maxShares: 255, // 假設有限域的大小
+    logs: [], // 需初始化為適當的對數表
+    exps: [], // 需初始化為適當的指數表
+};
+
+
+
+
+(function (root, factory) {
     "use strict"
 
     if (typeof define === "function" && define.amd) {
         // AMD. Register as an anonymous module.
-        define([], function() {
+        define([], function () {
             /*eslint-disable no-return-assign */
             return (root.secrets = factory())
             /*eslint-enable no-return-assign */
@@ -35,7 +55,7 @@
         // Browser globals (root is window)
         root.secrets = factory(root.crypto)
     }
-})(this, function(crypto) {
+})(this, function (crypto) {
     "use strict"
 
     var defaults, config, preGenPadding, runCSPRNGTest, CSPRNGTypes
@@ -53,37 +73,12 @@
             // The index of each term in the array corresponds to the n for that polynomial
             // i.e. to get the polynomial for n=16, use primitivePolynomials[16]
             primitivePolynomials: [
-                null,
-                null,
-                1,
-                3,
-                3,
-                5,
-                3,
-                3,
-                29,
-                17,
-                9,
-                5,
-                83,
-                27,
-                43,
-                3,
-                45,
-                9,
-                39,
-                39,
-                9,
-                5,
-                3,
-                33,
-                27,
-                9,
-                71,
-                39,
-                9,
-                5,
-                83
+                null, null, 1, 3, 3,
+                 5, 3, 3, 29, 17,
+                  9, 5, 83, 27, 43,
+                   3, 45, 9, 39,39,
+                    9, 5, 3, 33, 27,
+                     9, 71, 39, 9, 5, 83
             ]
         }
         config = {}
@@ -106,68 +101,49 @@
         return false
     }
 
-    // Pads a string `str` with zeros on the left so that its length is a multiple of `bits`
-    function padLeft(str, multipleOfBits) {
-        var missing
-
+    function padLeft(str: string, multipleOfBits: number): string {
         if (multipleOfBits === 0 || multipleOfBits === 1) {
-            return str
+          return str; // 如果倍數為 0 或 1，直接返回
         }
-
-        if (multipleOfBits && multipleOfBits > 1024) {
-            throw new Error(
-                "Padding must be multiples of no larger than 1024 bits."
-            )
+      
+        if (multipleOfBits > 1024) {
+          throw new Error("Padding must be multiples of no larger than 1024 bits.");
         }
-
-        multipleOfBits = multipleOfBits || config.bits
-
+      
+        multipleOfBits = multipleOfBits || config.bits; // 使用預設位數
+      
         if (str) {
-            missing = str.length % multipleOfBits
+          const missing = str.length % multipleOfBits; // 計算需要補零的位數
+          if (missing) {
+            return (preGenPadding + str).slice(-(multipleOfBits - missing + str.length));
+          }
         }
+      
+        return str; // 如果不需要補零，返回原始字串
+      }
+      
 
-        if (missing) {
-            return (preGenPadding + str).slice(
-                -(multipleOfBits - missing + str.length)
-            )
-        }
-
-        return str
+    function hex2bin(str: string): string {
+        return str.split('').reverse().map(char => {
+            const num = parseInt(char, 16);
+            if (isNaN(num)) {
+                throw new Error("Invalid hex character.");
+            }
+            return num.toString(2).padStart(4, '0');
+        }).reverse().join('');
     }
 
-    function hex2bin(str) {
-        var bin = "",
-            num,
-            i
-
-        for (i = str.length - 1; i >= 0; i--) {
-            num = parseInt(str[i], 16)
-
+    function bin2hex(str: string): string {
+        str = str.padStart(Math.ceil(str.length / 4) * 4, '0');
+        let hex = '';
+        for (let i = 0; i < str.length; i += 4) {
+            const num = parseInt(str.slice(i, i + 4), 2);
             if (isNaN(num)) {
-                throw new Error("Invalid hex character.")
+                throw new Error("Invalid binary character.");
             }
-
-            bin = padLeft(num.toString(2), 4) + bin
+            hex += num.toString(16);
         }
-        return bin
-    }
-
-    function bin2hex(str) {
-        var hex = "",
-            num,
-            i
-
-        str = padLeft(str, 4)
-
-        for (i = str.length; i >= 4; i -= 4) {
-            num = parseInt(str.slice(i - 4, i), 2)
-            if (isNaN(num)) {
-                throw new Error("Invalid binary character.")
-            }
-            hex = num.toString(16) + hex
-        }
-
-        return hex
+        return hex;
     }
 
     // Browser supports crypto.getRandomValues()
@@ -333,50 +309,55 @@
             config.typeCSPRNG = "browserCryptoGetRandomValues"
             return browserCryptoGetRandomValues
         }
-    }
+    }//getRNG
 
-    // Splits a number string `bits`-length segments, after first
-    // optionally zero-padding it to a length that is a multiple of `padLength.
-    // Returns array of integers (each less than 2^bits-1), with each element
-    // representing a `bits`-length segment of the input string from right to left,
-    // i.e. parts[0] represents the right-most `bits`-length segment of the input string.
-    function splitNumStringToIntArray(str, padLength) {
-        var parts = [],
-            i
 
+
+///////////////////////////////////////////////////////////`    
+
+    // 將數字字串分割為整數陣列
+    function splitNumStringToIntArray(
+        str: string,
+        padLength?: number
+    ): number[] {
+        const parts: number[] = [];
+
+        // 如果有 padLength，先對字串進行填充
         if (padLength) {
-            str = padLeft(str, padLength)
+            str = padLeft(str, padLength);
         }
 
-        for (i = str.length; i > config.bits; i -= config.bits) {
-            parts.push(parseInt(str.slice(i - config.bits, i), 2))
+        // 從尾部開始按 config.bits 切割
+        for (let i = str.length; i > config.bits; i -= config.bits) {
+            const segment = str.slice(i - config.bits, i);
+            parts.push(parseInt(segment, 2)); // 將二進位子字串轉換為整數
         }
 
-        parts.push(parseInt(str.slice(0, i), 2))
+        // 處理剩餘不足 config.bits 的部分
+        if (str.length > 0) {
+            parts.push(parseInt(str.slice(0, str.length), 2));
+        }
 
-        return parts
+        return parts;
     }
 
-    // Polynomial evaluation at `x` using Horner's Method
-    // NOTE: fx=fx * x + coeff[i] ->  exp(log(fx) + log(x)) + coeff[i],
-    //       so if fx===0, just set fx to coeff[i] because
-    //       using the exp/log form will result in incorrect value
-    function horner(x, coeffs) {
-        var logx = config.logs[x],
-            fx = 0,
-            i
+    // Horner 方法計算多項式值
+    function horner(x: number, coeffs: number[]): number {
+        const logx = config.logs[x]; // 取 x 的對數值
+        let fx = 0;
 
-        for (i = coeffs.length - 1; i >= 0; i--) {
+        // 從高次項到低次項計算
+        for (let i = coeffs.length - 1; i >= 0; i--) {
             if (fx !== 0) {
                 fx =
                     config.exps[(logx + config.logs[fx]) % config.maxShares] ^
-                    coeffs[i]
+                    coeffs[i];
             } else {
-                fx = coeffs[i]
+                fx = coeffs[i];
             }
         }
 
-        return fx
+        return fx;
     }
 
     // Evaluate the Lagrange interpolation polynomial at x = `at`
@@ -455,8 +436,8 @@
         if (typeof id !== "number" || id % 1 !== 0 || id < 1 || id > idMax) {
             throw new Error(
                 "Share id must be an integer between 1 and " +
-                    idMax +
-                    ", inclusive."
+                idMax +
+                ", inclusive."
             )
         }
 
@@ -469,7 +450,7 @@
     // //////////////////
 
     var secrets = {
-        init: function(bits, rngType) {
+        init: function (bits, rngType) {
             var logs = [],
                 exps = [],
                 x = 1,
@@ -488,10 +469,10 @@
             ) {
                 throw new Error(
                     "Number of bits must be an integer between " +
-                        defaults.minBits +
-                        " and " +
-                        defaults.maxBits +
-                        ", inclusive."
+                    defaults.minBits +
+                    " and " +
+                    defaults.maxBits +
+                    ", inclusive."
                 )
             }
 
@@ -546,7 +527,7 @@
         // individual config.bits-length segments of each share in the `shares`
         // Array. Each share is expressed in base `inputRadix`. The output
         // is expressed in base `outputRadix'.
-        combine: function(shares, at) {
+        combine: function (shares, at) {
             var i,
                 j,
                 len,
@@ -637,7 +618,7 @@
             )
         },
 
-        getConfig: function() {
+        getConfig: function () {
             var obj = {}
             obj.radix = config.radix
             obj.bits = config.bits
@@ -649,7 +630,7 @@
 
         // Given a public share, extract the bits (Integer), share ID (Integer), and share data (Hex)
         // and return an Object containing those components.
-        extractShareComponents: function(share) {
+        extractShareComponents: function (share) {
             var bits,
                 id,
                 idLen,
@@ -670,10 +651,10 @@
             ) {
                 throw new Error(
                     "Invalid share : Number of bits must be an integer between " +
-                        defaults.minBits +
-                        " and " +
-                        defaults.maxBits +
-                        ", inclusive."
+                    defaults.minBits +
+                    " and " +
+                    defaults.maxBits +
+                    ", inclusive."
                 )
             }
 
@@ -696,8 +677,8 @@
             if (typeof id !== "number" || id % 1 !== 0 || id < 1 || id > max) {
                 throw new Error(
                     "Invalid share : Share id must be an integer between 1 and " +
-                        config.maxShares +
-                        ", inclusive."
+                    config.maxShares +
+                    ", inclusive."
                 )
             }
 
@@ -712,7 +693,7 @@
         },
 
         // Set the PRNG to use. If no RNG function is supplied, pick a default using getRNG()
-        setRNG: function(rng) {
+        setRNG: function (rng) {
             var errPrefix = "Random number generator is invalid ",
                 errSuffix =
                     " Supply an CSPRNG of the form function(bits){} that returns a string containing 'bits' number of random 1's and 0's."
@@ -751,24 +732,24 @@
                 if (rng && !parseInt(rng(config.bits), 2)) {
                     throw new Error(
                         errPrefix +
-                            "(Binary string output not parseable to an Integer)." +
-                            errSuffix
+                        "(Binary string output not parseable to an Integer)." +
+                        errSuffix
                     )
                 }
 
                 if (rng && rng(config.bits).length > config.bits) {
                     throw new Error(
                         errPrefix +
-                            "(Output length is greater than config.bits)." +
-                            errSuffix
+                        "(Output length is greater than config.bits)." +
+                        errSuffix
                     )
                 }
 
                 if (rng && rng(config.bits).length < config.bits) {
                     throw new Error(
                         errPrefix +
-                            "(Output length is less than config.bits)." +
-                            errSuffix
+                        "(Output length is less than config.bits)." +
+                        errSuffix
                     )
                 }
             }
@@ -781,7 +762,7 @@
         // Converts a given UTF16 character string to the HEX representation.
         // Each character of the input string is represented by
         // `bytesPerChar` bytes in the output string which defaults to 2.
-        str2hex: function(str, bytesPerChar) {
+        str2hex: function (str, bytesPerChar) {
             var hexChars,
                 max,
                 out = "",
@@ -806,8 +787,8 @@
             ) {
                 throw new Error(
                     "Bytes per character must be an integer between 1 and " +
-                        defaults.maxBytesPerChar +
-                        ", inclusive."
+                    defaults.maxBytesPerChar +
+                    ", inclusive."
                 )
             }
 
@@ -825,12 +806,12 @@
                     neededBytes = Math.ceil(Math.log(num + 1) / Math.log(256))
                     throw new Error(
                         "Invalid character code (" +
-                            num +
-                            "). Maximum allowable is 256^bytes-1 (" +
-                            max +
-                            "). To convert this character, use at least " +
-                            neededBytes +
-                            " bytes."
+                        num +
+                        "). Maximum allowable is 256^bytes-1 (" +
+                        max +
+                        "). To convert this character, use at least " +
+                        neededBytes +
+                        " bytes."
                     )
                 }
 
@@ -840,7 +821,7 @@
         },
 
         // Converts a given HEX number string to a UTF16 character string.
-        hex2str: function(str, bytesPerChar) {
+        hex2str: function (str, bytesPerChar) {
             var hexChars,
                 out = "",
                 i,
@@ -859,8 +840,8 @@
             ) {
                 throw new Error(
                     "Bytes per character must be an integer between 1 and " +
-                        defaults.maxBytesPerChar +
-                        ", inclusive."
+                    defaults.maxBytesPerChar +
+                    ", inclusive."
                 )
             }
 
@@ -879,7 +860,7 @@
         },
 
         // Generates a random bits-length number string using the PRNG
-        random: function(bits) {
+        random: function (bits) {
             if (
                 typeof bits !== "number" ||
                 bits % 1 !== 0 ||
@@ -898,7 +879,7 @@
         // into `numShares` shares, each expressed in radix `outputRadix` (optional, default to `inputRadix`),
         // requiring `threshold` number of shares to reconstruct the secret.
         // Optionally, zero-pads the secret to a length that is a multiple of padLength before sharing.
-        share: function(secret, numShares, threshold, padLength) {
+        share: function (secret, numShares, threshold, padLength) {
             var neededBits,
                 subShares,
                 x = new Array(numShares),
@@ -924,8 +905,8 @@
             ) {
                 throw new Error(
                     "Number of shares must be an integer between 2 and 2^bits-1 (" +
-                        config.maxShares +
-                        "), inclusive."
+                    config.maxShares +
+                    "), inclusive."
                 )
             }
 
@@ -933,12 +914,12 @@
                 neededBits = Math.ceil(Math.log(numShares + 1) / Math.LN2)
                 throw new Error(
                     "Number of shares must be an integer between 2 and 2^bits-1 (" +
-                        config.maxShares +
-                        "), inclusive. To create " +
-                        numShares +
-                        " shares, use at least " +
-                        neededBits +
-                        " bits."
+                    config.maxShares +
+                    "), inclusive. To create " +
+                    numShares +
+                    " shares, use at least " +
+                    neededBits +
+                    " bits."
                 )
             }
 
@@ -949,8 +930,8 @@
             ) {
                 throw new Error(
                     "Threshold number of shares must be an integer between 2 and 2^bits-1 (" +
-                        config.maxShares +
-                        "), inclusive."
+                    config.maxShares +
+                    "), inclusive."
                 )
             }
 
@@ -958,22 +939,22 @@
                 neededBits = Math.ceil(Math.log(threshold + 1) / Math.LN2)
                 throw new Error(
                     "Threshold number of shares must be an integer between 2 and 2^bits-1 (" +
-                        config.maxShares +
-                        "), inclusive.  To use a threshold of " +
-                        threshold +
-                        ", use at least " +
-                        neededBits +
-                        " bits."
+                    config.maxShares +
+                    "), inclusive.  To use a threshold of " +
+                    threshold +
+                    ", use at least " +
+                    neededBits +
+                    " bits."
                 )
             }
 
             if (threshold > numShares) {
                 throw new Error(
                     "Threshold number of shares was " +
-                        threshold +
-                        " but must be less than or equal to the " +
-                        numShares +
-                        " shares specified as the total to generate."
+                    threshold +
+                    " but must be less than or equal to the " +
+                    numShares +
+                    " shares specified as the total to generate."
                 )
             }
 
@@ -1012,7 +993,7 @@
 
         // Generate a new share with id `id` (a number between 1 and 2^bits-1)
         // `id` can be a Number or a String in the default radix (16)
-        newShare: function(id, shares) {
+        newShare: function (id, shares) {
             var share, radid
 
             if (id && typeof id === "string") {
