@@ -26,6 +26,8 @@ interface Config {
     maxShares: number;
     logs: number[];
     exps: number[];
+    size: number;
+    radix: number;
 }
 
 interface Share {
@@ -38,10 +40,15 @@ const config_re: Config = {
     maxShares: 255, // 假設有限域的大小
     logs: [], // 需初始化為適當的對數表
     exps: [], // 需初始化為適當的指數表
+    size: 256, // 有限域大小
+    radix: 16 // 進制
 };
 
 
-
+type UserConfig = Partial<{
+    bits: number;  // 用戶可自定義的配置屬性
+    radix: number;
+}>;
 
 //https://www.ecice06.com/CN/10.3969/j.issn.1000-3428.2008.15.052
 
@@ -323,8 +330,86 @@ export class Secrets {
 
     //--------------------------------end of static--------------------------------------------------------------------------------------------
 
+    //rng : string;
+    bits : number;
+    radix : number;
+    minBits : number;
+    maxBits : number;
+    private config: Config;
+    private rng: () => string;
+
+    constructor(userConfig: UserConfig = {}) {
+        const { bits, radix, minBits, maxBits, primitivePolynomials } = settings;
+
+        // 構造配置，使用默認值，允許用戶自定義部分配置
+        this.config = {
+            bits: userConfig.bits || bits,
+            radix: userConfig.radix || radix,
+            size: Math.pow(2, userConfig.bits || bits),
+            maxShares: Math.pow(2, userConfig.bits || bits) - 1,
+            logs: [],
+            exps: []
+        };
+
+        // 默認隨機數生成器
+        this.rng = () => Math.random().toString(2).substring(2, 2 + this.config.bits);
+
+        // 初始化多項式和表
+        this.init();
+    }
+
+    /**
+     * 初始化方法，構造對數表和指數表
+     */
+    private init(): void {
+        const { bits, size, maxShares } = this.config;
+        const { primitivePolynomials, minBits, maxBits } = settings;
+
+        // 檢查 bits 的合法性
+        if (bits < minBits || bits > maxBits) {
+            throw new Error(`Bits must be between ${minBits} and ${maxBits}.`);
+        }
+
+        // 獲取對應位數的原始多項式
+        const primitive = primitivePolynomials[bits];
+        if (!primitive) {
+            throw new Error(`No primitive polynomial found for bits=${bits}.`);
+        }
+
+        const logs: number[] = [];
+        const exps: number[] = [];
+        let x = 1;
+
+        // 構造對數和指數表
+        for (let i = 0; i < size; i++) {
+            exps[i] = x;
+            logs[x] = i;
+            x = x << 1; // 左移 1 位
+            if (x >= size) {
+                x = x ^ primitive; // XOR
+                x = x & maxShares; // AND
+            }
+        }
+
+        this.config.logs = logs;
+        this.config.exps = exps;
+    }
+
+    /**
+     * 設置隨機數生成器
+     * @param rng 隨機數生成器函數
+     */
+    setRNG(rng?: () => string): void {
+        this.rng = rng || (() => Math.random().toString(2).substring(2, 2 + this.config.bits));
+    }
+
+    /**
+     * 獲取當前配置
+     */
+    getConfig(): Config {
+        return this.config;
+    }
 
 
 
-
-}
+}//end of Secrets class
